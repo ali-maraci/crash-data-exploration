@@ -25,3 +25,13 @@ venv/
 
 # Worktrees
 .worktrees/
+
+# CrashScope artifacts
+*.parquet
+data/
+models/
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
