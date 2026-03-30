@@ -1,0 +1,26 @@
+Metadata-Version: 2.4
+Name: crashscope
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: pyarrow
+Requires-Dist: h3
+Requires-Dist: lightgbm
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: pydantic-settings
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: httpx; extra == "dev"
+Provides-Extra: analysis
+Requires-Dist: matplotlib; extra == "analysis"
+Requires-Dist: seaborn; extra == "analysis"
+Requires-Dist: scipy; extra == "analysis"
+Requires-Dist: scikit-learn; extra == "analysis"
+Requires-Dist: statsmodels; extra == "analysis"
+Requires-Dist: python-pptx; extra == "analysis"
+Requires-Dist: openpyxl; extra == "analysis"
+Requires-Dist: folium; extra == "analysis"

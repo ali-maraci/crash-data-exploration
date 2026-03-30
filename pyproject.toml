@@ -1,0 +1,43 @@
+[project]
+name = "crashscope"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "numpy",
+    "pyarrow",
+    "h3",
+    "lightgbm",
+    "scikit-learn",
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "httpx",
+]
+analysis = [
+    "matplotlib",
+    "seaborn",
+    "scipy",
+    "statsmodels",
+    "python-pptx",
+    "openpyxl",
+    "folium",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: marks tests that need full data pipeline"]
