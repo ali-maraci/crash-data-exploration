@@ -7,12 +7,13 @@ import ForecastChart from "./ForecastChart";
 interface HotspotPanelProps {
   h3Cell: string | null;
   horizon: number;
+  asOfDate: string;
 }
 
-export default function HotspotPanel({ h3Cell, horizon }: HotspotPanelProps) {
+export default function HotspotPanel({ h3Cell, horizon, asOfDate }: HotspotPanelProps) {
   const { data, isLoading } = useQuery<HotspotDetailResponse>({
-    queryKey: ["hotspot", h3Cell, horizon],
-    queryFn: () => fetchHotspot(h3Cell!, horizon),
+    queryKey: ["hotspot", h3Cell, horizon, asOfDate],
+    queryFn: () => fetchHotspot(h3Cell!, horizon, asOfDate),
     enabled: !!h3Cell,
   });
 

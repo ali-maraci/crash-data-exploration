@@ -10,6 +10,7 @@ import HotspotPanel from "./components/HotspotPanel";
 export default function App() {
   const [horizon, setHorizon] = useState(7);
   const [target, setTarget] = useState("crash_count");
+  const [asOfDate, setAsOfDate] = useState("2023-06-15");
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
   const { data: hotspots } = useQuery({
@@ -18,8 +19,8 @@ export default function App() {
   });
 
   const { data: cityForecast } = useQuery({
-    queryKey: ["cityForecast", horizon, target],
-    queryFn: () => fetchCityForecast(horizon, target),
+    queryKey: ["cityForecast", horizon, target, asOfDate],
+    queryFn: () => fetchCityForecast(horizon, target, asOfDate),
   });
 
   return (
@@ -27,8 +28,10 @@ export default function App() {
       <Filters
         horizon={horizon}
         target={target}
+        asOfDate={asOfDate}
         onHorizonChange={setHorizon}
         onTargetChange={setTarget}
+        onAsOfDateChange={setAsOfDate}
       />
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         <div style={{ flex: 7, position: "relative" }}>
@@ -43,7 +46,7 @@ export default function App() {
             <ForecastChart forecasts={cityForecast.forecasts} title="City-wide Forecast" />
           )}
           <hr style={{ margin: "0", border: "none", borderTop: "1px solid #ddd" }} />
-          <HotspotPanel h3Cell={selectedCell} horizon={horizon} />
+          <HotspotPanel h3Cell={selectedCell} horizon={horizon} asOfDate={asOfDate} />
         </div>
       </div>
     </div>
