@@ -22,3 +22,6 @@ venv/
 
 # Claude Code
 .claude/
+
+# Worktrees
+.worktrees/
