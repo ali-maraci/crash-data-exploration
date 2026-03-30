@@ -1,18 +1,14 @@
 interface FiltersProps {
   horizon: number;
-  target: string;
   asOfDate: string;
   onHorizonChange: (h: number) => void;
-  onTargetChange: (t: string) => void;
   onAsOfDateChange: (d: string) => void;
 }
 
 export default function Filters({
   horizon,
-  target,
   asOfDate,
   onHorizonChange,
-  onTargetChange,
   onAsOfDateChange,
 }: FiltersProps) {
   return (
@@ -33,13 +29,6 @@ export default function Filters({
           <option value={7}>7 days</option>
           <option value={14}>14 days</option>
           <option value={28}>28 days</option>
-        </select>
-      </label>
-      <label>
-        Target:{" "}
-        <select value={target} onChange={(e) => onTargetChange(e.target.value)}>
-          <option value="crash_count">All crashes</option>
-          <option value="injury_crash_count">Injury crashes</option>
         </select>
       </label>
     </div>
