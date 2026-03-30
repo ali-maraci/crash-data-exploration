@@ -1,74 +1,196 @@
-# Chicago Traffic Crash Analysis (2016–2023)
+# CrashScope
 
-Statistical analysis of 785,000+ traffic crashes in Chicago, exploring temporal patterns, weather–severity relationships, dangerous behaviours, and geographic hotspots.
+A forecasting and decision-support app built on 776,000+ Chicago traffic crashes (2016-2023). Pick any historical date, forecast the next N days, and compare predictions against what actually happened.
 
-## Research Questions
+![CrashScope App](docs/app-screenshot.png)
 
-1. **Temporal Correlation** — Is there a correlation between time of year/week/day and crash occurrence?
-2. **Wet Weather & Severity** — Is there a causal relationship between wet weather and crash severity?
-3. **Key Exploratory Findings** — What patterns emerge in hit-and-run incidents, speed–severity relationships, and contributory causes?
-4. **Geographic Hotspots** — Where do crashes cluster and what safety interventions could help?
-
-## Methods
-
-| Technique | Purpose |
-|-----------|---------|
-| Chi-squared tests | Temporal distribution significance |
-| Mann-Whitney U | Weekday vs weekend comparison |
-| Seasonal decomposition | Annual crash rhythm extraction |
-| Odds ratios & logistic regression | Weather–severity association (with confounders) |
-| DBSCAN clustering | Geographic hotspot identification (150m radius) |
-| Folium heatmaps | Interactive crash density mapping |
-
-## Key Findings
-
-- **October** is peak crash month; **Friday 3–5 PM** is the most dangerous window
-- Wet weather is associated with **10.4% higher injury odds** after controlling for darkness, speed, hour, and day
-- **30% of all crashes** are hit-and-run, peaking at 3 AM (48% H&R rate)
-- Speed zones above 40 mph have **5.7x higher fatality rates** than 0–20 mph zones
-- **98 geographic clusters** identified; Ontario Street tops the list with 1,470 injury crashes
-
-## Output
-
-The `output/` folder contains:
-
-- 11 publication-quality charts (PNG, 250 DPI)
-- 2 interactive HTML maps (crash heatmap and fatal crash map)
-- 24-slide PowerPoint presentation
-
-## Project Structure
+## Architecture
 
 ```
-run_analysis.py              # Main analysis script (generates all outputs)
-create_notebook.py           # Builds the Jupyter notebook programmatically
-traffic_crash_analysis.ipynb # Executable Jupyter notebook
-answerslogic.md              # Detailed methodology and reasoning
-implementation_plan.md       # Original project plan
-output/                      # Charts, maps, and presentation
+Traffic_Crashes.csv
+        │
+        ▼
+  ┌─────────────┐     ┌──────────────┐     ┌──────────────┐
+  │   Ingest     │────▶│   Features   │────▶│   H3 Index   │
+  │  (clean,     │     │ (wet weather,│     │ (lat/lon →   │
+  │   filter)    │     │  time, speed)│     │  hex cells)  │
+  └─────────────┘     └──────────────┘     └──────────────┘
+                                                   │
+                              ┌─────────────────────┤
+                              ▼                     ▼
+                    ┌──────────────┐      ┌──────────────┐
+                    │  City Panel  │      │  Cell Panel   │
+                    │ (1 row/day,  │      │ (1 row/day/  │
+                    │  city totals)│      │  H3 cell)    │
+                    └──────┬───────┘      └──────┬───────┘
+                           │                     │
+                           ▼                     ▼
+                    ┌──────────────┐      ┌──────────────┐
+                    │  City Model  │      │  Cell Model  │
+                    │  (LightGBM)  │      │  (LightGBM)  │
+                    └──────┬───────┘      └──────┬───────┘
+                           │                     │
+                           ▼                     ▼
+                    ┌────────────────────────────────────┐
+                    │          FastAPI Service            │
+                    │  /forecast/city  /hotspot/{cell}   │
+                    │  /hotspots/top   /health           │
+                    └──────────────┬─────────────────────┘
+                                  │
+                                  ▼
+                    ┌────────────────────────────────────┐
+                    │        React Frontend              │
+                    │  deck.gl H3 map + Recharts         │
+                    │  date picker + hotspot drill-down  │
+                    └────────────────────────────────────┘
 ```
 
-## Data
+### Data Flow Trace
 
-This project uses the [Chicago Traffic Crashes](https://data.cityofchicago.org/Transportation/Traffic-Crashes-Crashes/85ca-t3if) public dataset. Download `Traffic_Crashes.csv` and place it in the project root before running.
+A typical request: user picks `as_of_date=2022-06-15`, `horizon=7`
+
+1. **Frontend** calls `GET /forecast/city?as_of_date=2022-06-15&horizon=7`
+2. **API** slices city panel to rows `<= 2022-06-15`
+3. **City model** takes the last row's features (lag_1, lag_7, rolling_7_mean, day_of_week, etc.)
+4. **Recursive predict**: for each of 7 days, advance calendar features, update lags from prior predictions, predict next day's crash count
+5. **Actuals lookup**: API fetches real crash counts from 2022-06-16 through 2022-06-22
+6. **Response**: `[{date, predicted_value, actual_value}, ...]`
+7. **Chart**: renders predicted (red) vs actual (green dashed) lines
+
+## What Failed and What I Changed
+
+Building this iteratively exposed several issues. Here's the honest log:
+
+### 1. Flat prediction line
+**Problem:** The forecast chart showed a perfectly horizontal line — the same prediction for every day in the horizon.
+
+**Root cause:** The `predict()` method used `iloc[-1:]` to grab the last row's features and reused them identically for every forecast step. Calendar features (day_of_week, month) and lag features never advanced.
+
+**Fix:** Rewrote `predict()` to advance calendar features per step and feed each prediction back into the lag/rolling history for the next step. Added a test `test_predict_varies_across_horizon` to prevent regression.
+
+### 2. City forecast wildly inaccurate
+**Problem:** City-wide predictions were far off from actual totals.
+
+**Root cause:** The `/forecast/city` endpoint summed per-cell predictions across ~1,500 H3 cells. Each cell individually had near-zero crash counts (most days: 0). Small per-cell biases (e.g., predicting 0.3 instead of 0) compounded: 0.3 x 1,500 = 450 phantom crashes. The model was never trained to predict city-wide totals.
+
+**Fix:** Added a dedicated city-level model trained on daily city-wide aggregates (~250-400 crashes/day). The `/forecast/city` endpoint now uses this model directly instead of summing cell predictions. Cell-level model still used for `/hotspot/{h3_cell}`.
+
+### 3. "Forecast from today" meaningless with historical data
+**Problem:** Data covers 2016-2023. Forecasting "next 7 days" from the end of the dataset (Dec 2023) produces predictions into Jan 2024 with no actuals to compare against.
+
+**Fix:** Added `as_of_date` parameter. Users pick any date within the data range, the model forecasts from that point, and the response includes actual values so you can see predicted vs actual. The frontend has a date picker constrained to 2016-2023.
+
+### 4. Target dropdown did nothing visible
+**Problem:** Switching between "All crashes" and "Injury crashes" didn't change the chart.
+
+**Root cause:** Only one model was trained (on `crash_count`). The target dropdown changed the actuals line but not predictions — the difference was too subtle to notice.
+
+**Fix:** Removed the target dropdown. One model, one target, no confusion.
+
+### 5. scikit-learn not in core dependencies
+**Problem:** `make train` crashed with `LightGBMError: scikit-learn is required`.
+
+**Root cause:** `scikit-learn` was listed under `[project.optional-dependencies.analysis]` but LightGBM's sklearn API needs it at runtime.
+
+**Fix:** Moved `scikit-learn` to core `[project.dependencies]`.
+
+### 6. `.gitignore` ignored `src/models/`
+**Problem:** Git ignored the `src/models/` directory because `.gitignore` had `models/` (matching any path).
+
+**Fix:** Changed to `/models/` (anchored to repo root).
 
 ## Setup
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+cd .worktrees/crashscope   # or wherever the project lives
+
+# 1. Install dependencies
+make install                # creates venv + installs deps
+cd frontend && npm install && cd ..
+
+# 2. Symlink the data (if needed)
+ln -s /path/to/Traffic_Crashes.csv Traffic_Crashes.csv
+
+# 3. Build data + train
+make data                   # ~1 min — creates data/*.parquet
+make train                  # ~30s — trains cell + city LightGBM models
+
+# 4. Run
+make serve                  # API on http://localhost:8000
+cd frontend && npm run dev  # Frontend on http://localhost:5173
 ```
 
-## Usage
+## API Endpoints
 
-Run the full analysis pipeline:
+| Endpoint | Description |
+|----------|-------------|
+| `GET /forecast/city?horizon=7&as_of_date=2022-06-15` | City-wide daily forecast with actuals |
+| `GET /hotspot/{h3_cell}?horizon=7&as_of_date=2022-06-15` | Per-cell forecast with actuals |
+| `GET /hotspots/top?n=20` | Top N cells by total crash count |
+| `GET /health` | Health check |
+
+## Models
+
+Two LightGBM regressors, both trained on 2016-2022 data (2023 held out for hindcast evaluation):
+
+| Model | Target | Training rows | Features |
+|-------|--------|---------------|----------|
+| City-level (`lgbm_city_v1.txt`) | Daily city-wide crash count | ~2,500 | Calendar (day_of_week, month, is_weekend, day_of_year) + lag (1,7,14,28 day) + rolling (7,14,28 day mean/sum) |
+| Cell-level (`lgbm_cell_v1.txt`) | Daily per-H3-cell crash count | ~2.2M | Same feature set, per cell |
+
+**Recursive forecasting:** Each step advances calendar features and feeds the prediction back into lag/rolling features for the next step.
+
+## Tests
 
 ```bash
-python run_analysis.py
+make test    # 49 tests, ~3s
 ```
 
-Or explore interactively via the Jupyter notebook:
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| `test_ingest.py` | 5 | CSV loading, year filtering, null handling |
+| `test_features.py` | 4 | Binary flags, time periods, speed categories |
+| `test_h3_index.py` | 4 | H3 cell assignment, bounds checking, null coords |
+| `test_panel.py` | 8 | Zero-filling, lags, rolling features, city panel aggregation |
+| `test_lgbm.py` | 6 | Fit, predict shape, non-negative, save/load, horizon variation |
+| `test_naive.py` | 3 | Seasonal naive, moving average baselines |
+| `test_evaluate.py` | 5 | MAE, RMSE, WAPE, rolling backtest |
+| `test_api.py` | 9 | All endpoints, as_of_date, 404s, actuals |
+| `test_schemas.py` | 3 | Pydantic serialization |
+| `test_settings.py` | 2 | Config defaults |
 
-```bash
-jupyter notebook traffic_crash_analysis.ipynb
+## Project Structure
+
 ```
+src/
+  ingest.py          # CSV loading + cleaning
+  features.py        # Feature engineering (flags, categories)
+  h3_index.py        # H3 spatial indexing
+  panel.py           # Daily panel builder (cell + city level)
+  pipeline.py        # End-to-end orchestrator
+  models/
+    naive.py         # Baseline models (seasonal naive, moving average)
+    lgbm.py          # LightGBM forecaster with recursive predict
+    evaluate.py      # MAE, RMSE, WAPE, rolling backtest
+  api/
+    app.py           # FastAPI factory with lifespan loader
+    routes.py        # Endpoint handlers
+    schemas.py       # Pydantic request/response models
+    deps.py          # Dependency injection
+config/
+  settings.py        # Pydantic settings (paths, params, API config)
+frontend/
+  src/
+    components/      # Map, Filters, ForecastChart, HotspotPanel
+    api/client.ts    # Typed fetch wrapper
+    types/api.ts     # TypeScript interfaces
+tests/               # 49 tests across 10 modules
+```
+
+## Data
+
+[Chicago Traffic Crashes](https://data.cityofchicago.org/Transportation/Traffic-Crashes-Crashes/85ca-t3if) — 785,000+ crash records from the City of Chicago open data portal.
+
+## Original Analysis
+
+The original statistical analysis (`run_analysis.py`) is preserved in the repo. It generates 11 charts, 2 interactive maps, and a 24-slide PowerPoint covering temporal patterns, weather-severity relationships, hit-and-run analysis, and geographic hotspots. See `answerslogic.md` for detailed methodology.
