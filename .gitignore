@@ -29,7 +29,7 @@ venv/
 # CrashScope artifacts
 *.parquet
 data/
-models/
+/models/
 .env
 
 # Frontend
