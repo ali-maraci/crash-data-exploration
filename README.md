@@ -57,48 +57,6 @@ A typical request: user picks `as_of_date=2022-06-15`, `horizon=7`
 6. **Response**: `[{date, predicted_value, actual_value}, ...]`
 7. **Chart**: renders predicted (red) vs actual (green dashed) lines
 
-## What Failed and What I Changed
-
-Building this iteratively exposed several issues. Here's the honest log:
-
-### 1. Flat prediction line
-**Problem:** The forecast chart showed a perfectly horizontal line — the same prediction for every day in the horizon.
-
-**Root cause:** The `predict()` method used `iloc[-1:]` to grab the last row's features and reused them identically for every forecast step. Calendar features (day_of_week, month) and lag features never advanced.
-
-**Fix:** Rewrote `predict()` to advance calendar features per step and feed each prediction back into the lag/rolling history for the next step. Added a test `test_predict_varies_across_horizon` to prevent regression.
-
-### 2. City forecast wildly inaccurate
-**Problem:** City-wide predictions were far off from actual totals.
-
-**Root cause:** The `/forecast/city` endpoint summed per-cell predictions across ~1,500 H3 cells. Each cell individually had near-zero crash counts (most days: 0). Small per-cell biases (e.g., predicting 0.3 instead of 0) compounded: 0.3 x 1,500 = 450 phantom crashes. The model was never trained to predict city-wide totals.
-
-**Fix:** Added a dedicated city-level model trained on daily city-wide aggregates (~250-400 crashes/day). The `/forecast/city` endpoint now uses this model directly instead of summing cell predictions. Cell-level model still used for `/hotspot/{h3_cell}`.
-
-### 3. "Forecast from today" meaningless with historical data
-**Problem:** Data covers 2016-2023. Forecasting "next 7 days" from the end of the dataset (Dec 2023) produces predictions into Jan 2024 with no actuals to compare against.
-
-**Fix:** Added `as_of_date` parameter. Users pick any date within the data range, the model forecasts from that point, and the response includes actual values so you can see predicted vs actual. The frontend has a date picker constrained to 2016-2023.
-
-### 4. Target dropdown did nothing visible
-**Problem:** Switching between "All crashes" and "Injury crashes" didn't change the chart.
-
-**Root cause:** Only one model was trained (on `crash_count`). The target dropdown changed the actuals line but not predictions — the difference was too subtle to notice.
-
-**Fix:** Removed the target dropdown. One model, one target, no confusion.
-
-### 5. scikit-learn not in core dependencies
-**Problem:** `make train` crashed with `LightGBMError: scikit-learn is required`.
-
-**Root cause:** `scikit-learn` was listed under `[project.optional-dependencies.analysis]` but LightGBM's sklearn API needs it at runtime.
-
-**Fix:** Moved `scikit-learn` to core `[project.dependencies]`.
-
-### 6. `.gitignore` ignored `src/models/`
-**Problem:** Git ignored the `src/models/` directory because `.gitignore` had `models/` (matching any path).
-
-**Fix:** Changed to `/models/` (anchored to repo root).
-
 ## Setup
 
 ```bash
