@@ -77,3 +77,34 @@ def test_hotspots_top_returns_list(client):
     data = resp.json()
     assert "hotspots" in data
     assert len(data["hotspots"]) <= 5
+
+
+def test_forecast_city_with_as_of_date(client):
+    resp = client.get("/forecast/city?as_of_date=2023-01-15&horizon=7")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "forecasts" in data
+    assert "as_of_date" in data
+    assert data["as_of_date"] == "2023-01-15"
+
+
+def test_forecast_city_with_as_of_date_includes_actuals(client):
+    resp = client.get("/forecast/city?as_of_date=2023-01-15&horizon=7")
+    assert resp.status_code == 200
+    data = resp.json()
+    for point in data["forecasts"]:
+        assert "actual_value" in point
+
+
+def test_forecast_city_without_as_of_date_uses_panel_end(client):
+    resp = client.get("/forecast/city?horizon=7")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "as_of_date" in data
+
+
+def test_hotspot_with_as_of_date(client):
+    resp = client.get("/hotspot/cell_a?as_of_date=2023-01-15&horizon=7")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "as_of_date" in data

@@ -9,6 +9,7 @@ class ForecastPoint(BaseModel):
     date: date
     predicted_value: float
     h3_cell: str | None = None
+    actual_value: float | None = None
 
 
 class CityForecastResponse(BaseModel):
@@ -16,6 +17,7 @@ class CityForecastResponse(BaseModel):
     model_name: str
     target: str
     generated_at: datetime
+    as_of_date: date
 
 
 class HotspotSummary(BaseModel):
@@ -31,6 +33,7 @@ class HotspotDetailResponse(BaseModel):
     injury_crash_count: int
     forecast: list[ForecastPoint]
     generated_at: datetime
+    as_of_date: date
 
 
 class TopHotspotsResponse(BaseModel):
