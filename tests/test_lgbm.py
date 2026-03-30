@@ -61,6 +61,17 @@ def test_feature_importance_returns_dataframe(train_panel):
     assert "importance" in fi.columns
 
 
+def test_predict_varies_across_horizon(train_panel):
+    """Predictions should not be a flat line — calendar features change per step."""
+    model = CrashForecaster(target="crash_count")
+    model.fit(train_panel)
+    preds = model.predict(train_panel, horizon=7)
+    # Check predictions for one cell across 7 days
+    cell_preds = preds[preds["h3_cell"] == "cell_a"]["predicted"].tolist()
+    # Not all values should be identical (calendar features differ day to day)
+    assert len(set(cell_preds)) > 1, "Predictions are a flat line — features not updating"
+
+
 def test_save_and_load_roundtrip(train_panel, tmp_path):
     model = CrashForecaster(target="crash_count")
     model.fit(train_panel)
