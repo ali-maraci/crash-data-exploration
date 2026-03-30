@@ -15,6 +15,7 @@ def test_city_forecast_response_has_required_fields():
         forecasts=[ForecastPoint(date=date(2024, 1, 1), predicted_value=10.0)],
         model_name="lgbm_v1",
         target="crash_count",
+        as_of_date=date(2023, 12, 31),
         generated_at=datetime(2024, 1, 1, 12, 0),
     )
     assert resp.model_name == "lgbm_v1"
