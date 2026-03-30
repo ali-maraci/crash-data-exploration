@@ -13,7 +13,7 @@ from src.ingest import clean, load_raw
 from src.models.evaluate import mae, rmse, wape
 from src.models.lgbm import CrashForecaster
 from src.models.naive import MovingAverage, SeasonalNaive
-from src.panel import add_lag_features, add_rolling_features, build_daily_panel
+from src.panel import add_lag_features, add_rolling_features, build_city_panel, build_daily_panel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -41,6 +41,11 @@ def run_data_pipeline(settings: Settings | None = None) -> tuple[pd.DataFrame, p
     panel.to_parquet(settings.panel_parquet_path, index=False)
     logger.info("Saved panel (%d rows) to %s", len(panel), settings.panel_parquet_path)
 
+    # Build city-level panel
+    city_panel = build_city_panel(panel)
+    city_panel.to_parquet(settings.city_panel_parquet_path, index=False)
+    logger.info("Saved city panel (%d rows) to %s", len(city_panel), settings.city_panel_parquet_path)
+
     return events, panel
 
 
@@ -55,17 +60,21 @@ def run_training_pipeline(settings: Settings | None = None):
 
     logger.info("Train: %d rows, Test: %d rows (split at %s)", len(train), len(test), split_date)
 
-    # Train LightGBM
+    # Train cell-level LightGBM
     model = CrashForecaster(target="crash_count")
     model.fit(train.dropna())
 
     settings.model_dir.mkdir(parents=True, exist_ok=True)
-    model.save(settings.model_dir / "lgbm_city_v1.txt")
-    logger.info("Model saved to %s", settings.model_dir / "lgbm_city_v1.txt")
+    model.save(settings.model_dir / "lgbm_cell_v1.txt")
+    logger.info("Cell model saved to %s", settings.model_dir / "lgbm_cell_v1.txt")
 
-    # Quick evaluation on test set
-    preds = model.predict(train.dropna(), horizon=min(settings.forecast_horizon, len(test["date"].unique())))
-    logger.info("Forecast generated with %d predictions", len(preds))
+    # Train city-level LightGBM
+    city_panel = pd.read_parquet(settings.city_panel_parquet_path)
+    city_train = city_panel[city_panel["date"] < split_date]
+    city_model = CrashForecaster(target="crash_count")
+    city_model.fit(city_train.dropna())
+    city_model.save(settings.model_dir / "lgbm_city_v1.txt")
+    logger.info("City model saved to %s", settings.model_dir / "lgbm_city_v1.txt")
 
     return model
 

@@ -6,17 +6,31 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api.app import create_app
-from src.api.deps import get_model, get_panel
+from src.api.deps import get_city_model, get_city_panel, get_model, get_panel
 
 
 @pytest.fixture
 def mock_model():
+    """Mock cell-level model (returns predictions with h3_cell)."""
     model = MagicMock()
     model.predict.return_value = pd.DataFrame(
         {
             "date": pd.date_range("2024-01-01", periods=7, freq="D"),
             "h3_cell": ["cell_a"] * 7,
             "predicted": [5.0] * 7,
+        }
+    )
+    return model
+
+
+@pytest.fixture
+def mock_city_model():
+    """Mock city-level model (returns predictions without h3_cell)."""
+    model = MagicMock()
+    model.predict.return_value = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=7, freq="D"),
+            "predicted": [250.0, 260.0, 245.0, 270.0, 255.0, 200.0, 190.0],
         }
     )
     return model
@@ -41,10 +55,25 @@ def mock_panel():
 
 
 @pytest.fixture
-def client(mock_model, mock_panel):
+def mock_city_panel():
+    dates = pd.date_range("2023-01-01", periods=30, freq="D")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "crash_count": [250 + i % 7 * 10 for i in range(30)],
+            "injury_crash_count": [30 + i % 5 for i in range(30)],
+            "fatal_crash_count": [0] * 30,
+        }
+    )
+
+
+@pytest.fixture
+def client(mock_model, mock_city_model, mock_panel, mock_city_panel):
     app = create_app()
     app.dependency_overrides[get_model] = lambda: mock_model
     app.dependency_overrides[get_panel] = lambda: mock_panel
+    app.dependency_overrides[get_city_model] = lambda: mock_city_model
+    app.dependency_overrides[get_city_panel] = lambda: mock_city_panel
     return TestClient(app)
 
 

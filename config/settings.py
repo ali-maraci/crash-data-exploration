@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     raw_csv_path: Path = Path("Traffic_Crashes.csv")
     events_parquet_path: Path = Path("data/events.parquet")
     panel_parquet_path: Path = Path("data/panel_daily_res8.parquet")
+    city_panel_parquet_path: Path = Path("data/city_panel_daily.parquet")
     model_dir: Path = Path("models")
 
     # Data

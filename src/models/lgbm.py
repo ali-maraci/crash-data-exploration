@@ -51,57 +51,64 @@ class CrashForecaster:
 
     def predict(self, panel: pd.DataFrame, horizon: int) -> pd.DataFrame:
         """Recursive multi-step forecast with updated calendar and lag features."""
-        cells = panel["h3_cell"].unique()
+        has_cells = "h3_cell" in panel.columns
         last_date = panel["date"].max()
         results = []
 
-        # Build per-cell recent history for lag updates
-        cell_histories: dict[str, list[float]] = {}
-        for cell in cells:
-            cell_data = panel[panel["h3_cell"] == cell].sort_values("date")
-            cell_histories[cell] = cell_data[self.target].tolist()
+        if has_cells:
+            cells = panel["h3_cell"].unique()
+            groups = {cell: panel[panel["h3_cell"] == cell].sort_values("date") for cell in cells}
+        else:
+            cells = ["__city__"]
+            groups = {"__city__": panel.sort_values("date")}
+
+        # Build per-group recent history for lag updates
+        histories: dict[str, list[float]] = {}
+        for key, grp in groups.items():
+            histories[key] = grp[self.target].tolist()
 
         for step in range(1, horizon + 1):
             forecast_date = last_date + pd.Timedelta(days=step)
 
-            for cell in cells:
-                cell_data = panel[panel["h3_cell"] == cell].sort_values("date").iloc[-1:].copy()
+            for key in cells:
+                row = groups[key].iloc[-1:].copy()
 
                 # Update calendar features for the forecast date
                 for col in self._feature_cols:
                     if col == "day_of_week":
-                        cell_data[col] = forecast_date.dayofweek
+                        row[col] = forecast_date.dayofweek
                     elif col == "month":
-                        cell_data[col] = forecast_date.month
+                        row[col] = forecast_date.month
                     elif col == "is_weekend":
-                        cell_data[col] = int(forecast_date.dayofweek >= 5)
+                        row[col] = int(forecast_date.dayofweek >= 5)
                     elif col == "day_of_year":
-                        cell_data[col] = forecast_date.dayofyear
+                        row[col] = forecast_date.dayofyear
 
                 # Update lag features from history + prior predictions
-                history = cell_histories[cell]
+                history = histories[key]
                 for col in self._feature_cols:
                     if col.startswith(f"{self.target}_lag_"):
                         lag = int(col.split("_")[-1])
                         if lag <= len(history):
-                            cell_data[col] = history[-lag]
+                            row[col] = history[-lag]
                     elif col.startswith(f"{self.target}_roll_") and "_mean" in col:
                         window = int(col.split("_")[3])
                         vals = history[-window:] if len(history) >= window else history
-                        cell_data[col] = np.mean(vals) if vals else 0.0
+                        row[col] = np.mean(vals) if vals else 0.0
                     elif col.startswith(f"{self.target}_roll_") and "_sum" in col:
                         window = int(col.split("_")[3])
                         vals = history[-window:] if len(history) >= window else history
-                        cell_data[col] = np.sum(vals) if vals else 0.0
+                        row[col] = np.sum(vals) if vals else 0.0
 
-                X = cell_data[self._feature_cols]
+                X = row[self._feature_cols]
                 pred = max(0.0, float(self._model.predict(X)[0]))
-                results.append(
-                    {"date": forecast_date, "h3_cell": cell, "predicted": pred}
-                )
 
-                # Feed prediction back into history for next step
-                cell_histories[cell].append(pred)
+                result = {"date": forecast_date, "predicted": pred}
+                if has_cells:
+                    result["h3_cell"] = key
+                results.append(result)
+
+                histories[key].append(pred)
 
         return pd.DataFrame(results).reset_index(drop=True)
 

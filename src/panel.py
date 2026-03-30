@@ -38,6 +38,30 @@ def build_daily_panel(events: pd.DataFrame) -> pd.DataFrame:
     return panel.sort_values(["h3_cell", "date"]).reset_index(drop=True)
 
 
+def build_city_panel(panel: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate cell-level panel to city-wide daily totals with lag/rolling features."""
+    city = (
+        panel.groupby("date")
+        .agg(
+            crash_count=("crash_count", "sum"),
+            injury_crash_count=("injury_crash_count", "sum"),
+            fatal_crash_count=("fatal_crash_count", "sum"),
+        )
+        .reset_index()
+    )
+    city["h3_cell"] = "__city__"  # sentinel so add_lag/rolling_features work
+    city["day_of_week"] = city["date"].dt.dayofweek
+    city["month"] = city["date"].dt.month
+    city["is_weekend"] = city["day_of_week"].isin([5, 6]).astype(int)
+    city["day_of_year"] = city["date"].dt.dayofyear
+    city = city.sort_values("date").reset_index(drop=True)
+
+    city = add_lag_features(city)
+    city = add_rolling_features(city)
+    city = city.drop(columns=["h3_cell"])
+    return city
+
+
 def add_lag_features(
     panel: pd.DataFrame, lags: list[int] | None = None
 ) -> pd.DataFrame:

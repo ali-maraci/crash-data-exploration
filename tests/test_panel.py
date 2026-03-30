@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.panel import add_lag_features, add_rolling_features, build_daily_panel
+from src.panel import add_lag_features, add_rolling_features, build_city_panel, build_daily_panel
 
 
 @pytest.fixture
@@ -61,6 +61,28 @@ def test_rolling_mean_value(events_with_h3):
     expected = cell_a.loc[:2, "crash_count"].mean()
     actual = cell_a.loc[3, "crash_count_roll_3_mean"]
     assert abs(actual - expected) < 1e-6
+
+
+def test_city_panel_one_row_per_day(events_with_h3):
+    panel = build_daily_panel(events_with_h3)
+    city = build_city_panel(panel)
+    assert city["date"].nunique() == len(city), "City panel should have one row per day"
+    assert "h3_cell" not in city.columns, "City panel should not have h3_cell"
+
+
+def test_city_panel_sums_cells(events_with_h3):
+    panel = build_daily_panel(events_with_h3)
+    city = build_city_panel(panel)
+    # Day 0: cell_a=2, cell_b=1 → total=3
+    day0 = city[city["date"] == pd.Timestamp("2020-01-01")]
+    assert day0["crash_count"].iloc[0] == 3
+
+
+def test_city_panel_has_lag_features(events_with_h3):
+    panel = build_daily_panel(events_with_h3)
+    city = build_city_panel(panel)
+    assert "crash_count_lag_1" in city.columns
+    assert "crash_count_roll_7_mean" in city.columns
 
 
 def test_panel_shape(events_with_h3):

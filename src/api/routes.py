@@ -5,7 +5,7 @@ from datetime import date, datetime
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.api.deps import get_model, get_panel
+from src.api.deps import get_city_model, get_city_panel, get_model, get_panel
 from src.api.schemas import (
     CityForecastResponse,
     ForecastPoint,
@@ -46,27 +46,26 @@ def forecast_city(
     horizon: int = Query(default=7, ge=1, le=90),
     target: str = Query(default="crash_count"),
     as_of_date: date | None = Query(default=None),
-    model: CrashForecaster = Depends(get_model),
-    panel: pd.DataFrame = Depends(get_panel),
+    city_model: CrashForecaster = Depends(get_city_model),
+    city_panel: pd.DataFrame = Depends(get_city_panel),
 ):
-    # Determine as_of_date: use provided value or panel's max date
     if as_of_date is None:
-        as_of_date = panel["date"].max().date()
+        as_of_date = city_panel["date"].max().date()
 
-    # Slice panel to only data <= as_of_date for prediction
-    panel_slice = panel[panel["date"] <= pd.Timestamp(as_of_date)]
+    panel_slice = city_panel[city_panel["date"] <= pd.Timestamp(as_of_date)]
+    if panel_slice.empty:
+        raise HTTPException(status_code=400, detail="No data available before as_of_date")
 
-    preds = model.predict(panel_slice, horizon=horizon)
-    # Aggregate across cells per day
-    daily = preds.groupby("date")["predicted"].sum().reset_index()
+    preds = city_model.predict(panel_slice, horizon=horizon)
 
-    # Get forecast date range for actuals lookup
-    if not daily.empty:
-        forecast_start = daily["date"].min()
-        forecast_end = daily["date"].max()
-        actuals = _get_actuals(panel, target, forecast_start, forecast_end)
-    else:
-        actuals = {}
+    # Look up actuals from full city panel
+    forecast_start = preds["date"].min()
+    forecast_end = preds["date"].max()
+    actuals_mask = (city_panel["date"] >= forecast_start) & (city_panel["date"] <= forecast_end)
+    actuals = {
+        row["date"].date().isoformat(): float(row[target])
+        for _, row in city_panel[actuals_mask].iterrows()
+    }
 
     forecasts = [
         ForecastPoint(
@@ -74,7 +73,7 @@ def forecast_city(
             predicted_value=round(row["predicted"], 2),
             actual_value=actuals.get(pd.Timestamp(row["date"]).date().isoformat()),
         )
-        for _, row in daily.iterrows()
+        for _, row in preds.iterrows()
     ]
     return CityForecastResponse(
         forecasts=forecasts,
